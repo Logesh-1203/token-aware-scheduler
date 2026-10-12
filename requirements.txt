@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+pandas
+matplotlib
+pytest
+pytest-asyncio
+streamlit

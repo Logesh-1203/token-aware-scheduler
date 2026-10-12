@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token-aware scheduler: live benchmark</title>
+<style>
+:root{--ink:#17232d;--sub:#566672;--paper:#f3f5f6;--panel:#fff;--line:#d5dce1;--real:#0f5e7a;--sim:#a8660f;--ok:#1d7549;--bad:#b3261e;--gen:#0f5e7a;--ttft:#e0a23a}
+@media (prefers-color-scheme:dark){:root{--ink:#e6edf1;--sub:#9aabb6;--paper:#10181e;--panel:#18222a;--line:#2b3943;--real:#5fb6d6;--sim:#e0a23a;--ok:#5fc08a;--bad:#f0817a;--gen:#5fb6d6;--ttft:#e0a23a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-size:20px;margin:0;font-weight:650}
+h2{font-size:15px;margin:0 0 10px;font-weight:650}
+.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:4px 12px;font-size:13px}
+.pill i{width:9px;height:9px;border-radius:50%;background:var(--sub)}
+.pill.live i{background:var(--ok)}.pill.down i{background:var(--bad)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.latest-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-bottom:12px}
+.latest-head .prompt{flex:1 1 280px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{font-size:12px;font-weight:650;padding:2px 9px;border-radius:5px;border:1px solid currentColor}
+.badge.REAL{color:var(--real)}
+.badge.SIMULATED{color:var(--sim);background:repeating-linear-gradient(135deg,transparent 0 5px,color-mix(in srgb,var(--sim) 18%,transparent) 5px 10px)}
+.st{font-weight:650}.st.SUCCESS{color:var(--ok)}.st.FAILED{color:var(--bad)}.st.IN_PROGRESS{color:var(--sub)}
+.timeline{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:6px 0 4px}
+.timeline b{display:block;height:100%}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--sub);margin-bottom:14px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:var(--c)}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+.nums div span{display:block;font-size:12px;color:var(--sub)}
+.nums div strong{font-size:24px;font-weight:600}
+.nums small{font-size:13px;color:var(--sub);font-weight:400}
+.err{color:var(--bad);margin:10px 0 0;word-break:break-word}
+.counts{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:16px;padding:0 4px}
+.counts span{display:block;font-size:12px;color:var(--sub)}.counts strong{font-size:20px;font-weight:600}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px}
+.charts section{margin:0}
+svg.chart{width:100%;height:96px;display:block}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+select,a.btn{font:inherit;font-size:13px;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);text-decoration:none}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--sub)}td.num,th.num{text-align:right}
+td.prompt{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.empty{padding:28px 8px;color:var(--sub);text-align:center}
+.empty code{background:var(--paper);padding:2px 6px;border-radius:4px}
+:focus-visible{outline:2px solid var(--real);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Token-aware scheduler: live benchmark</h1>
+    <span id="conn" class="pill"><i></i><span>Connecting&hellip;</span></span>
+  </header>
+
+  <section id="latest" hidden>
+    <div class="latest-head"><span id="l-badge" class="badge"></span><span id="l-status" class="st"></span>
+      <span id="l-prompt" class="prompt"></span><span id="l-id" style="color:var(--sub);font-size:12px"></span></div>
+    <div class="timeline" id="l-bar" title="Where the time went (gateway measurement)"></div>
+    <div class="legend"><span style="--c:var(--ttft)">Waiting for first token</span><span style="--c:var(--gen)">Generating</span><span id="l-load"></span></div>
+    <div class="nums" id="l-nums"></div>
+    <div id="l-routing" style="margin-top:14px;padding:12px;background:var(--paper);border-radius:8px;border:1px solid var(--line)" hidden>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:13px">🧠 Adaptive Routing Decision & Explanation</strong>
+        <span id="l-rscore" style="font-size:12px;font-weight:600;color:var(--real)"></span>
+      </div>
+      <p id="l-rexpl" style="margin:0 0 8px;font-size:13px;line-height:1.4"></p>
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--sub);flex-wrap:wrap">
+        <span id="l-rworkload"></span>
+        <span id="l-rwait"></span>
+        <span id="l-rfallback"></span>
+      </div>
+    </div>
+    <p class="err" id="l-err" hidden></p>
+  </section>
+
+  <!-- Live Benchmark Comparison Lab -->
+  <section id="bench-lab">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div>
+        <h2 style="margin:0;font-size:16px">⚡ Live Benchmark Comparison Lab</h2>
+        <span style="font-size:12px;color:var(--sub)">Compare Baseline (FIFO) vs Adaptive Token-Aware Scheduling on identical workloads</span>
+      </div>
+      <button id="btn-run-bench" class="btn" style="background:var(--real);color:#fff;border:none;cursor:pointer;padding:7px 16px;font-weight:600;border-radius:6px">▶ Run Live Comparison</button>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <label style="font-size:12px">Baseline: <select id="b-base"><option value="fifo">FIFO (Arrival Order)</option><option value="token_aware">Token-Aware</option><option value="adaptive_least_conn">Least-Conn</option></select></label>
+      <label style="font-size:12px">Proposed: <select id="b-adapt"><option value="adaptive" selected>Adaptive Token-Aware</option><option value="adaptive_pred">Adaptive (EWMA Pred)</option></select></label>
+      <label style="font-size:12px">Workload: <select id="b-preset"><option value="balanced" selected>Balanced (40/40/20)</option><option value="chat_heavy">Chat Heavy (70% interactive)</option><option value="batch_heavy">Batch Heavy (60% batch)</option></select></label>
+      <label style="font-size:12px">Requests: <select id="b-size"><option value="5">5 requests</option><option value="10" selected>10 requests</option><option value="20">20 requests</option></select></label>
+      <label style="font-size:12px">Mode: <select id="b-mode"><option value="SIMULATED" selected>SIMULATED</option><option value="REAL">REAL (Ollama Qwen3)</option></select></label>
+      <label style="font-size:12px">Warm-up: <select id="b-warm"><option value="1" selected>1 request</option><option value="0">0 (none)</option><option value="2">2 requests</option></select></label>
+    </div>
+    <div id="bench-status" style="font-size:13px;color:var(--sub);margin-bottom:12px" hidden></div>
+    <div id="bench-results" hidden>
+      <div id="bench-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong style="font-size:13px">Side-by-Side Metric Comparison</strong>
+        <a id="bench-csv-link" class="btn" href="#" style="font-size:12px">Download Benchmark CSV</a>
+      </div>
+      <div class="wrap"><table id="bench-tbl"><thead><tr>
+        <th>Metric</th><th class="num">Baseline</th><th class="num">Adaptive</th><th class="num">Diff</th><th class="num">% Change</th><th>Superior</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+    <div id="bench-history" style="margin-top:16px" hidden>
+      <h3 style="font-size:13px;margin:0 0 8px">Saved Benchmark Runs</h3>
+      <div id="bench-hist-list" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+  </section>
+
+  <!-- SLO & Starvation Guard Section -->
+  <section id="slo-starvation-guard">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div>
+        <h2 style="margin:0;font-size:16px">⏱️ SLO & Starvation Guard</h2>
+        <span style="font-size:12px;color:var(--sub)">Adaptive Queue Aging · Anti-Starvation Protection · Live SLO Attainment</span>
+      </div>
+      <span id="sg-status-badge" class="badge" style="color:var(--ok)">ENABLED</span>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="nums" style="margin-bottom:14px">
+      <div><span>Queue Depth</span><strong id="sg-q-depth">0</strong><small> pending</small></div>
+      <div><span>Longest Wait</span><strong id="sg-q-wait">0.00s</strong><small> oldest req</small></div>
+      <div><span>At Starvation Risk</span><strong id="sg-q-risk" style="color:var(--bad)">0</strong><small> near limit</small></div>
+      <div><span>SLO Status</span><strong id="sg-slo-st">Healthy</strong><small id="sg-slo-sub"> rolling p95</small></div>
+      <div><span>Protected by Aging</span><strong id="sg-protected" style="color:var(--ok)">0</strong><small> escalated</small></div>
+    </div>
+
+    <!-- Controls -->
+    <div style="background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <strong style="font-size:13px">🎛️ Starvation Protection Controls</strong>
+        <div style="display:flex;gap:8px">
+          <button id="btn-sg-apply" class="btn" style="background:var(--ok);color:#fff;border:none;cursor:pointer;padding:4px 12px;border-radius:4px;font-size:12px">Apply</button>
+          <button id="btn-sg-reset" class="btn" style="cursor:pointer;padding:4px 12px;border-radius:4px;font-size:12px">Reset</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px">
+        <label><input type="checkbox" id="sg-enabled" checked> Enable Starvation Protection</label>
+        <label>Wait Threshold: <input type="number" id="sg-thresh" value="30" min="1" max="120" style="width:55px;padding:3px;border:1px solid var(--line);border-radius:4px">s</label>
+        <label>Aging Rate: <input type="number" id="sg-rate" value="5" min="0" max="50" style="width:45px;padding:3px;border:1px solid var(--line);border-radius:4px"> pts/s</label>
+        <label>SLO Target: <input type="number" id="sg-target" value="18" min="1" max="120" style="width:55px;padding:3px;border:1px solid var(--line);border-radius:4px">s</label>
+      </div>
+    </div>
+
+    <!-- Live Queue Table -->
+    <div style="margin-bottom:8px">
+      <strong style="font-size:13px">Live Queued Requests & Starvation Risk</strong>
+    </div>
+    <div class="wrap">
+      <table id="sg-queue-tbl">
+        <thead><tr><th>Request ID</th><th>Profile</th><th>Policy</th><th>Wait Time</th><th>Original Prio</th><th>Effective Prio</th><th>Aging Boost</th><th>Risk</th><th>SLO</th></tr></thead>
+        <tbody><tr><td colspan="9" class="empty">✅ No requests queued. Fast-path operational.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="counts" id="counts"></div>
+  <div class="charts" id="charts" hidden>
+    <section><h2>Latency per request (s)</h2><svg class="chart" id="c-lat" role="img" aria-label="Latency per request"></svg></section>
+    <section><h2>Time to first token (s)</h2><svg class="chart" id="c-ttft" role="img" aria-label="TTFT per request"></svg></section>
+    <section><h2>Generation throughput (tokens/s)</h2><svg class="chart" id="c-tps" role="img" aria-label="Throughput per request"></svg></section>
+  </div>
+
+  <section>
+    <div class="filters">
+      <h2 style="margin:0 8px 0 0">Request history</h2>
+      <select id="f-model" aria-label="Model"></select><select id="f-mode" aria-label="Mode"></select>
+      <select id="f-backend" aria-label="Backend"></select><select id="f-policy" aria-label="Policy"></select>
+      <select id="f-status" aria-label="Status"></select>
+      <a class="btn" id="csv" href="#">Export CSV</a>
+    </div>
+    <div class="wrap"><table id="tbl"><thead><tr>
+      <th>Time</th><th>Request</th><th>Prompt</th><th>Model</th><th>Mode</th><th>Backend</th><th>Policy</th><th>Profile</th>
+      <th class="num">Latency s</th><th class="num">TTFT s</th><th class="num">Prompt tok</th><th class="num">Output tok</th><th class="num">Tok/s</th><th>Queue Wait</th><th>Status</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div class="empty" id="empty" hidden>No requests recorded yet. In a terminal run <code>.\.venv\Scripts\python.exe run_inference.py</code> and type a prompt. It appears here as soon as it starts.</div>
+  </section>
+</main>
+<script>
+const API = new URLSearchParams(location.search).get('api') || '';   // '' = same origin as the gateway
+const $ = s => document.querySelector(s);
+const FIELDS = ['model','mode','backend','policy','status'];
+const fmt = (v, d = 2) => v == null ? 'N/A' : Number(v).toFixed(d);
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+let timer = null, live = false;
+
+function setConn(state, label) { const c = $('#conn'); c.className = 'pill ' + state; c.querySelector('span').textContent = label; }
+
+async function getJSON(path) { const r = await fetch(API + path); if (!r.ok) throw new Error(path + ' -> HTTP ' + r.status); return r.json(); }
+
+async function load() {
+  const qs = new URLSearchParams({ limit: 200 });
+  FIELDS.forEach(f => { const v = $('#f-' + f).value; if (v) qs.set(f, v); });
+  try {
+    const [sum, rec] = await Promise.all([getJSON('/metrics'), getJSON('/metrics/recent?' + qs)]);
+    render(sum, rec.items);
+    if (!live) setConn('down', 'Gateway reachable, waiting for live stream');
+  } catch (e) { setConn('down', 'Cannot reach gateway: ' + e.message); }
+}
+
+function render(sum, items) {
+  renderCounts(sum); renderLatest(sum.latest); renderFilters(items); renderCharts(items); renderTable(items, sum.total + sum.in_progress);
+}
+
+function renderCounts(s) {
+  const box = $('#counts'); box.replaceChildren();
+  const rate = s.success_rate == null ? 'N/A' : (s.success_rate * 100).toFixed(0) + '%';
+  [['Successful', s.success], ['Failed', s.failed], ['Success rate', rate], ['In progress', s.in_progress]].forEach(([k, v]) => {
+    const d = el('div'); d.append(el('span', k), el('strong', v)); box.append(d);
+  });
+}
+
+function renderLatest(r) {
+  $('#latest').hidden = !r; if (!r) return;
+  const b = $('#l-badge'); b.textContent = r.mode; b.className = 'badge ' + r.mode;
+  const s = $('#l-status'); s.textContent = r.status.replace('_', ' '); s.className = 'st ' + r.status;
+  $('#l-prompt').textContent = r.prompt_preview || ''; $('#l-id').textContent = r.request_id.slice(0, 8);
+  const bar = $('#l-bar'); bar.replaceChildren();
+  if (r.latency_s > 0 && r.ttft_s != null) {
+    const a = Math.min(100, r.ttft_s / r.latency_s * 100);
+    [[a, 'var(--ttft)'], [100 - a, 'var(--gen)']].forEach(([w, c]) => { const x = document.createElement('b'); x.style.cssText = `width:${w}%;background:${c}`; bar.append(x); });
+  }
+  $('#l-load').textContent = r.load_s != null ? `Model load ${fmt(r.load_s)} s, prompt eval ${fmt(r.prompt_eval_s)} s (reported by Ollama)` : '';
+  const n = $('#l-nums'); n.replaceChildren();
+  [['Latency (gateway)', fmt(r.latency_s, 3), 's'], ['TTFT', fmt(r.ttft_s, 3), 's'], ['Prompt tokens', r.prompt_tokens ?? 'N/A', ''],
+   ['Output tokens', r.output_tokens ?? 'N/A', ''], ['Generation throughput', fmt(r.tokens_per_second, 2), 'tok/s']].forEach(([k, v, u]) => {
+    const d = el('div'); const st = el('strong', v); if (u && v !== 'N/A') st.append(el('small', ' ' + u)); d.append(el('span', k), st); n.append(d);
+  });
+
+  const rt = $('#l-routing');
+  if (r.routing_explanation || r.routing_score != null) {
+    rt.hidden = false;
+    $('#l-rexpl').textContent = r.routing_explanation || 'No routing explanation recorded.';
+    $('#l-rscore').textContent = r.routing_score != null ? 'Routing score: ' + fmt(r.routing_score, 1) : '';
+    $('#l-rworkload').textContent = `Workload: ~${r.estimated_input_tokens ?? 'N/A'} in (approx heuristic) / ${r.max_output_tokens ?? 'N/A'} max out`;
+    $('#l-rwait').textContent = r.queue_wait_s != null ? `Queue wait: ${fmt(r.queue_wait_s, 3)} s` : '';
+    $('#l-rfallback').textContent = r.fallback_occurred ? '⚠️ Fallback rerouted' : 'Direct primary dispatch';
+  } else {
+    rt.hidden = true;
+  }
+
+  const e = $('#l-err'); e.hidden = !r.error; e.textContent = r.error || '';
+}
+
+function renderFilters(items) {
+  FIELDS.forEach(f => {
+    const sel = $('#f-' + f), cur = sel.value;
+    const vals = [...new Set(items.map(i => i[f]).filter(Boolean))].sort();
+    if (cur && !vals.includes(cur)) vals.push(cur);
+    sel.replaceChildren(new Option('All ' + f + 's', ''), ...vals.map(v => new Option(v, v)));
+    sel.value = cur;
+  });
+}
+
+function bars(svg, items, key, color) {
+  const data = items.slice(0, 30).reverse(), W = 300, H = 90, bw = W / 30;
+  const max = Math.max(...data.map(d => d[key] || 0), 0.0001);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.replaceChildren();
+  const NS = 'http://www.w3.org/2000/svg';
+  data.forEach((d, i) => {
+    const v = d[key], r = document.createElementNS(NS, 'rect'), t = document.createElementNS(NS, 'title');
+    const h = v == null ? 3 : Math.max(2, v / max * (H - 6));
+    r.setAttribute('x', i * bw + 1); r.setAttribute('width', bw - 2); r.setAttribute('y', H - h); r.setAttribute('height', h); r.setAttribute('rx', 1.5);
+    r.setAttribute('fill', v == null ? 'var(--bad)' : (d.mode === 'SIMULATED' ? 'var(--sim)' : color));
+    t.textContent = `${d.request_id.slice(0, 8)} ${d.mode} ${d.status}: ${v == null ? 'N/A' : v.toFixed(2)}`; r.append(t); svg.append(r);
+  });
+}
+function renderCharts(items) {
+  const done = items.filter(i => i.status !== 'IN_PROGRESS'); $('#charts').hidden = !done.length;
+  bars($('#c-lat'), done, 'latency_s', 'var(--gen)'); bars($('#c-ttft'), done, 'ttft_s', 'var(--ttft)'); bars($('#c-tps'), done, 'tokens_per_second', 'var(--real)');
+}
+
+function renderTable(items, anyRows) {
+  const body = $('#tbl tbody'); body.replaceChildren();
+  $('#empty').hidden = items.length > 0 || anyRows > 0; $('#tbl').hidden = !items.length;
+  items.forEach(r => {
+    const tr = document.createElement('tr');
+    const add = (txt, cls, title) => { const td = el('td', txt, cls); if (title) td.title = title; tr.append(td); return td; };
+    add(new Date(r.created_at).toLocaleTimeString()); add(r.request_id.slice(0, 8), null, r.request_id);
+    add(r.prompt_preview, 'prompt', r.prompt_preview); add(r.model ?? 'N/A'); 
+    const m = add(''); m.append(el('span', r.mode, 'badge ' + r.mode));
+    add(r.backend ?? 'N/A', null, r.routing_explanation || '');
+    add(r.policy ?? 'N/A'); add(r.profile ?? 'N/A');
+    add(fmt(r.latency_s, 3), 'num'); add(fmt(r.ttft_s, 3), 'num'); add(r.prompt_tokens ?? 'N/A', 'num'); add(r.output_tokens ?? 'N/A', 'num'); add(fmt(r.tokens_per_second, 2), 'num');
+    add(fmt(r.queue_wait_s, 3), 'num');
+    add(r.status.replace('_', ' '), 'st ' + r.status, r.error || '');
+    body.append(tr);
+  });
+}
+
+async function runBenchmark() {
+  const btn = $('#btn-run-bench'), stat = $('#bench-status');
+  btn.disabled = true; btn.textContent = '⏳ Running Comparison...';
+  stat.hidden = false; stat.textContent = 'Running side-by-side benchmark across Baseline and Adaptive policies on identical workload...';
+  try {
+    const payload = {
+      baseline_policy: $('#b-base').value,
+      adaptive_policy: $('#b-adapt').value,
+      workload_preset: $('#b-preset').value,
+      workload_size: Number($('#b-size').value),
+      mode: $('#b-mode').value,
+      warmup_count: Number($('#b-warm').value),
+      seed: 42,
+    };
+    const res = await fetch(API + '/benchmark/compare', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errTxt}`);
+    }
+    const data = await res.json();
+    stat.textContent = `Completed benchmark run ${data.run_id} (${data.mode} mode, ${data.workload_size} requests).`;
+    renderBenchmarkResults(data);
+    loadBenchmarkHistory();
+  } catch (err) {
+    stat.textContent = `Benchmark failed: ${err.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '▶ Run Live Comparison';
+  }
+}
+
+function renderBenchmarkResults(data) {
+  const box = $('#bench-results'); box.hidden = false;
+  $('#bench-csv-link').href = API + `/benchmark/history/${data.run_id}/export.csv`;
+  const cards = $('#bench-cards'); cards.replaceChildren();
+  const baseName = (data.baseline_policy || 'baseline').toUpperCase();
+  const adaptName = (data.adaptive_policy || 'adaptive').toUpperCase();
+  const bSum = data.baseline_summary || {}, aSum = data.adaptive_summary || {};
+  
+  const keyCards = [
+    { title: 'Avg Latency', b: fmt(bSum.mean_latency_sec, 3) + 's', a: fmt(aSum.mean_latency_sec, 3) + 's', win: data.comparison?.mean_latency_sec?.winner },
+    { title: 'p95 Tail Latency', b: fmt(bSum.p95_latency_sec, 3) + 's', a: fmt(aSum.p95_latency_sec, 3) + 's', win: data.comparison?.p95_latency_sec?.winner },
+    { title: 'Mean TTFT', b: fmt(bSum.mean_ttft_sec, 3) + 's', a: fmt(aSum.mean_ttft_sec, 3) + 's', win: data.comparison?.mean_ttft_sec?.winner },
+    { title: 'Total Tokens/s', b: fmt(bSum.tokens_per_second_aggregate, 1), a: fmt(aSum.tokens_per_second_aggregate, 1), win: data.comparison?.tokens_per_second_aggregate?.winner },
+    { title: 'Success Rate', b: (bSum.success_rate_pct ?? 'N/A') + '%', a: (aSum.success_rate_pct ?? 'N/A') + '%', win: data.comparison?.success_rate_pct?.winner },
+  ];
+  
+  keyCards.forEach(c => {
+    const card = el('div', null, 'section'); card.style.margin = '0';
+    const h3 = el('h3', c.title, null); h3.style.cssText = 'font-size:12px;margin:0 0 6px;color:var(--sub)';
+    card.append(h3);
+    const grid = el('div'); grid.style.cssText = 'display:flex;justify-content:space-between;font-size:13px';
+    grid.innerHTML = `<span><b>${baseName}:</b> ${c.b}</span><span><b>${adaptName}:</b> ${c.a}</span>`;
+    card.append(grid);
+    if (c.win) {
+      const wBadge = el('div', c.win === 'adaptive' ? `🏆 Adaptive superior` : (c.win === 'baseline' ? `${baseName} superior` : 'Tie'), 'badge');
+      wBadge.style.cssText = 'margin-top:8px;font-size:11px;display:inline-block;padding:2px 6px;' + (c.win === 'adaptive' ? 'background:var(--ok);color:#fff;border:none' : '');
+      card.append(wBadge);
+    }
+    cards.append(card);
+  });
+  
+  const tbody = $('#bench-tbl tbody'); tbody.replaceChildren();
+  const comp = data.comparison || {};
+  Object.keys(comp).forEach(k => {
+    const row = comp[k];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><b>${row.label || k}</b></td>
+      <td class="num">${typeof row.baseline === 'number' ? fmt(row.baseline, 3) : (row.baseline ?? 'N/A')}</td>
+      <td class="num">${typeof row.adaptive === 'number' ? fmt(row.adaptive, 3) : (row.adaptive ?? 'N/A')}</td>
+      <td class="num">${row.diff > 0 ? '+' : ''}${fmt(row.diff, 3)}</td>
+      <td class="num"><b>${row.pct_change > 0 ? '+' : ''}${fmt(row.pct_change, 1)}%</b></td>
+      <td><span class="badge" style="${row.winner === 'adaptive' ? 'color:var(--ok)' : (row.winner === 'baseline' ? 'color:var(--sim)' : '')}">${row.winner.toUpperCase()}</span></td>
+    `;
+    tbody.append(tr);
+  });
+}
+
+async function loadBenchmarkHistory() {
+  try {
+    const r = await fetch(API + '/benchmark/history?limit=10');
+    if (!r.ok) return;
+    const json = await r.json();
+    const runs = json.runs || [];
+    const histBox = $('#bench-history'), list = $('#bench-hist-list');
+    if (!runs.length) { histBox.hidden = true; return; }
+    histBox.hidden = false; list.replaceChildren();
+    runs.forEach(run => {
+      const a = el('a', `${run.run_id.slice(0, 22)} (${run.mode})`, 'btn');
+      a.href = API + `/benchmark/history/${run.run_id}/export.csv`;
+      a.title = `Download CSV: ${run.baseline_policy} vs ${run.adaptive_policy} (${run.request_count} reqs)`;
+      a.style.fontSize = '12px';
+      list.append(a);
+    });
+  } catch (_) {}
+}
+
+async function loadStarvationGuard() {
+  try {
+    const r = await fetch(API + '/scheduler/starvation-guard');
+    if (!r.ok) return;
+    const data = await r.json();
+    const k = data.kpis || {};
+    const cfg = data.config || {};
+    const slo = data.slo_monitor || {};
+    const q = data.queued_requests || [];
+
+    $('#sg-q-depth').textContent = k.queue_depth ?? 0;
+    $('#sg-q-wait').textContent = (k.longest_wait_sec ?? 0).toFixed(2) + 's';
+    $('#sg-q-risk').textContent = k.starvation_risk_count ?? 0;
+    $('#sg-slo-st').textContent = k.slo_status ?? 'Healthy';
+    $('#sg-protected').textContent = k.requests_protected_by_aging ?? 0;
+    $('#sg-status-badge').textContent = cfg.enabled ? 'ENABLED' : 'DISABLED';
+    $('#sg-status-badge').style.color = cfg.enabled ? 'var(--ok)' : 'var(--bad)';
+
+    const tbody = $('#sg-queue-tbl tbody');
+    if (!q.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">✅ No requests queued. Fast-path operational.</td></tr>';
+    } else {
+      tbody.replaceChildren();
+      q.forEach(item => {
+        const tr = document.createElement('tr');
+        const color = item.starvation_risk_color === 'red' ? 'var(--bad)' : (item.starvation_risk_color === 'yellow' ? 'var(--sim)' : 'var(--ok)');
+        tr.innerHTML = `
+          <td><code>${item.request_id}</code></td>
+          <td>${item.profile}</td>
+          <td>${item.policy}</td>
+          <td class="num">${item.queue_wait_sec}s</td>
+          <td class="num">${item.original_priority}</td>
+          <td class="num"><b>${item.effective_priority}</b></td>
+          <td class="num">+${item.aging_adjustment}</td>
+          <td><span class="badge" style="color:${color}">${item.starvation_risk}</span></td>
+          <td>${item.slo_status}</td>
+        `;
+        tbody.append(tr);
+      });
+    }
+  } catch (_) {}
+}
+
+async function applyStarvationSettings() {
+  const payload = {
+    enabled: $('#sg-enabled').checked,
+    max_queue_wait_threshold_sec: parseFloat($('#sg-thresh').value),
+    aging_boost_rate: parseFloat($('#sg-rate').value),
+    slo_latency_target_sec: parseFloat($('#sg-target').value),
+  };
+  await fetch(API + '/scheduler/starvation-guard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  loadStarvationGuard();
+}
+
+async function resetStarvationSettings() {
+  await fetch(API + '/scheduler/starvation-guard/reset', { method: 'POST' });
+  loadStarvationGuard();
+}
+
+$('#btn-sg-apply').addEventListener('click', applyStarvationSettings);
+$('#btn-sg-reset').addEventListener('click', resetStarvationSettings);
+$('#btn-run-bench').addEventListener('click', runBenchmark);
+
+function schedule() { clearTimeout(timer); timer = setTimeout(() => { load(); loadStarvationGuard(); }, 150); }
+FIELDS.forEach(f => $('#f-' + f).addEventListener('change', load));
+$('#csv').href = API + '/metrics/export.csv';
+
+const es = new EventSource(API + '/metrics/stream');
+es.onopen = () => { live = true; setConn('live', 'Live'); load(); loadBenchmarkHistory(); loadStarvationGuard(); };
+es.onmessage = schedule;
+es.onerror = () => { live = false; setConn('down', 'Live stream interrupted, retrying'); };
+setInterval(() => { if (!live) { load(); loadBenchmarkHistory(); loadStarvationGuard(); } }, 5000);
+load();
+loadBenchmarkHistory();
+loadStarvationGuard();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{"type": "token", "text": "token1"}
+{"type": "token", "text": "token2"}
+{"type": "token", "text": "token3"}
+{"type": "token", "text": "token4"}
+{"type": "token", "text": "token5"}
+{"type": "token", "text": "token6"}
+{"type": "token", "text": "token7"}
+{"type": "token", "text": "token8"}
+{"type": "token", "text": "token9"}
+{"type": "token", "text": "token10"}
+{"type": "done", "request_id": "demo-003", "tokens_generated": 10}
